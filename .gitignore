@@ -1,6 +1,7 @@
 .gradle
 .settings
 /build
+/bin
 *.class
 
 # Mobile Tools for Java (J2ME)
@@ -14,6 +15,9 @@
 # Mac
 *.DS_Store
 ._*
+
+# Linux
+*~
 
 #Eclipse
 *.classpath
