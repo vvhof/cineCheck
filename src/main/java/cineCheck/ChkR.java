@@ -30,6 +30,8 @@ public class ChkR {
 	private static final String httpCheck   = "cineplex.de/booking-init";
 	private static final String httpCheckAlt = "booking.cineplex.de";
 	private static final String jsonPrefix = "https://booking.cineplex.de/TicketBoxXNG/booking/init.json?performanceId=";
+
+	private static final String securityChallengeAndResponse = "&c=110dd978-454d-4fc1-9fd9-d88a4d04d06d&r=00340d28223828499d252e984a2be75e8093e13077cb0e60934e22d131d2768d";
 	
 	// ms to wait between GETs
 	private static final int backoff = 20;
@@ -44,7 +46,6 @@ public class ChkR {
 	/**
 	 * List all Shows
 	 * @param url HTTP site of booking for one of the shows for that movie
-	 * @throws IOException thrown upon network error
 	 */
 	public List<BookingResponse> getAllListingsForMovie(String url) {
 		return getAllListingsForMovie(url, varyingPortionLength);
@@ -73,18 +74,19 @@ public class ChkR {
 		endPos = beginPos + 18;
 		String performance =  url.substring(beginPos, endPos);
 		
-		if (site == null || site.length() == 0 || performance == null || performance.length() == 0) {
+		if (site.length() == 0 || performance.length() == 0) {
 			System.out.println("Could not derive City or Performance IDs");
 			return null;
 		}
 		
 		// Derive postfix
-		String postfix = performance.substring(varyingPortionLength) + "&siteId=" + site;
+		String postfixPerfID = performance.substring(varyingPortionLength);
+		String andSiteID = "&siteId=" + site;
 				
 		// Get ID from film that interests us from server
 		Client client = ClientBuilder.newClient();
 		Invocation.Builder invocationBuilder = client
-				.target(jsonPrefix + performance + "&siteId=" + site)
+				.target(jsonPrefix + performance + "&siteId=" + site + securityChallengeAndResponse)
 				.request(MediaType.APPLICATION_JSON);
 		BookingResponse bookingResponse;
 		try {
@@ -106,14 +108,14 @@ public class ChkR {
 		int countHit = 0, countMiss = 0, countWrongMovie = 0;
 		for (char[] combination : combinations) {
 			invocationBuilder = client
-					.target(jsonPrefix + new String(combination) + postfix)
+					.target(jsonPrefix + new String(combination) + postfixPerfID + andSiteID + securityChallengeAndResponse)
 					.request(MediaType.APPLICATION_JSON);
 			// Try our request, if there is no hit we get a HTTP 500 Internal Server Error which we can ignore
 			try {
 				bookingResponse = gson.fromJson(
 						invocationBuilder.get(String.class), BookingResponse.class);
 				if (bookingResponse.kkFilmId == kkFilmId) {
-					bookingResponse.mURL = jsonPrefix + new String(combination) + postfix;
+					bookingResponse.mURL = httpPrefix + "/site/" + site + "/performance/" + new String(combination) + postfixPerfID;
 					bookingsInSystem.add(bookingResponse);
 					countHit++;
 				} else {
@@ -133,14 +135,17 @@ public class ChkR {
 			// Let's not be too aggressive
 			try {Thread.sleep(backoff);} catch (InterruptedException e) {e.printStackTrace();}
 		}		
-		
+		if (bookingsInSystem.size() == 0) {
+			System.out.println("No bookings found for URL");
+			return null;
+		}
 		// Sort results by date
 		Collections.sort(bookingsInSystem, new Comparator<BookingResponse>() {
 			public int compare(BookingResponse o1, BookingResponse o2) {
 				return o1.date.compareTo(o2.date);
 			}
 		});
-		
+
 		// Print a summary to the console
 		for(BookingResponse booking : bookingsInSystem) {
 			System.out.println(booking);
@@ -163,7 +168,6 @@ public class ChkR {
 	/**
 	 * 
 	 * @param args <URL> (optional <Output Destination>)
-	 * @throws IOException
 	 */
 	public static void main(String[] args) {
 		List<BookingResponse> validBookings;
@@ -172,11 +176,11 @@ public class ChkR {
 		} else {
 			// Get all valid listings
 			validBookings = new ChkR().getAllListingsForMovie(args[0]);
-			if (validBookings != null & validBookings.size() > 0) {
+			if (validBookings != null && validBookings.size() > 0) {
 				PrintWriter writer = null;
 				String URI = "BookingsFor" + validBookings.get(0).filmTitle.replace(" ", "").replace(".", "").replace("\\","").replace("/","") + ".txt";
 				// If we were supplied a destination, we'll write the results to a file there
-				if (args.length >= 2 && args[1] != null || args[1].length() != 0 ) {
+				if (args.length >= 2 && args[1] != null && args[1].length() != 0 ) {
 					URI = args[1].concat(URI);
 				}
 				try {
